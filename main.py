@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from google import genai
+import google.generativeai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -17,6 +17,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")  # e.g. "@marketsingal09"
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")  # Numeric ID from @userinfobot
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+# Configure Google Gemini SDK
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # Posting interval in minutes (default: 240 mins / 4 hours)
 POST_INTERVAL_MINUTES = int(os.getenv("POST_INTERVAL_MINUTES", "240"))
@@ -60,17 +64,14 @@ def ask_ai(question: str) -> str:
         return "🧠 AI assistant is currently disabled. Set your GEMINI_API_KEY environment variable."
     
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = (
             "You are MarketSignalBot, an expert assistant for Forex and Crypto trading. "
             "Provide concise, accurate answers in Markdown format. "
             "Never guarantee financial returns or provide direct investment advice.\n\n"
             f"User question: {question}"
         )
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         logging.error(f"Gemini API Error: {e}")
