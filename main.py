@@ -1,7 +1,7 @@
 import os
 import logging
 import requests
-from openai import OpenAI
+from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -16,7 +16,7 @@ from telegram.ext import (
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")  # e.g. "@marketsingal09"
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")  # Numeric ID from @userinfobot
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # Posting interval in minutes (default: 240 mins / 4 hours)
 POST_INTERVAL_MINUTES = int(os.getenv("POST_INTERVAL_MINUTES", "240"))
@@ -55,33 +55,25 @@ def get_crypto_prices() -> str:
         return "⚠️ Couldn't fetch market updates right now."
 
 def ask_ai(question: str) -> str:
-    """Answer questions using Groq Free API (Llama 3.3 70B)"""
-    if not GROQ_API_KEY:
-        return "🧠 AI assistant is currently disabled. Set your GROQ_API_KEY environment variable."
+    """Answer questions using Google Gemini Free API"""
+    if not GEMINI_API_KEY:
+        return "🧠 AI assistant is currently disabled. Set your GEMINI_API_KEY environment variable."
     
     try:
-        client = OpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=GROQ_API_KEY
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        prompt = (
+            "You are MarketSignalBot, an expert assistant for Forex and Crypto trading. "
+            "Provide concise, accurate answers in Markdown format. "
+            "Never guarantee financial returns or provide direct investment advice.\n\n"
+            f"User question: {question}"
         )
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are MarketSignalBot, an expert assistant for Forex and Crypto trading. "
-                        "Provide concise, accurate answers in Markdown format. "
-                        "Never guarantee financial returns or provide direct investment advice."
-                    )
-                },
-                {"role": "user", "content": question}
-            ],
-            max_tokens=350
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
         )
-        return response.choices[0].message.content
+        return response.text
     except Exception as e:
-        logging.error(f"Groq API Error: {e}")
+        logging.error(f"Gemini API Error: {e}")
         return "⚠️ Sorry, I could not process your AI request right now."
 
 # ==================== CHANNEL POSTING JOB ====================
@@ -125,7 +117,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /help — Show help message\n"
         "• /market — Fetch real-time market prices\n"
         "• /post — Instantly publish an update to the channel\n\n"
-        "💬 *AI Chat:* Send any text message (e.g., *'What is leverage?'*) to receive an AI response."
+        "💬 *AI Chat:* Send any text message to receive an AI response."
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -136,8 +128,6 @@ async def market_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def force_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manual trigger to immediately push updates to channel"""
     user_id = str(update.effective_user.id)
-    
-    # If ADMIN_USER_ID is set, restrict access; otherwise allow execution
     if ADMIN_USER_ID and user_id != str(ADMIN_USER_ID):
         await update.message.reply_text("⛔ Admin access required.")
         return
@@ -164,8 +154,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def post_init(application):
     """Executes auto-post immediately upon container startup"""
     interval_seconds = POST_INTERVAL_MINUTES * 60
-    
-    # Run job immediately (first=1 sec), repeating every interval_seconds
     application.job_queue.run_repeating(
         callback=auto_post_job,
         interval=interval_seconds,
@@ -180,7 +168,6 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Register Command & Message Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("market", market_command))
